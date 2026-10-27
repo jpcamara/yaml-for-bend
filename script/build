@@ -8,5 +8,5 @@ bend=${BEND_BIN:-bend}
 script/run "mkdir -p \$(dirname $out) && $bend $entry -o $out"
 if [ -n "$BEND_HOST" ]; then
   mkdir -p "$(dirname "$out")"
-  scp -q "$BEND_HOST:${BEND_DIR:-bend-yaml}/$out" "$out"
+  scp -q "$BEND_HOST:${BEND_DIR:-yaml-for-bend}/$out" "$out"
 fi

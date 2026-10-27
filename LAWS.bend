@@ -1,4 +1,4 @@
-# bend-yaml's laws: facts the code must keep. PROOF.bend proves each one,
+# yaml-for-bend's laws: facts the code must keep. PROOF.bend proves each one,
 # and `bend PROOF.bend` prints ALL PROOFS CHECK while they all hold.
 
 import Base

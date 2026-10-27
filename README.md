@@ -1,4 +1,4 @@
-# bend-yaml
+# yaml-for-bend
 
 A YAML library for [Bend 2](https://bend-lang.com). It reads YAML 1.2 into
 a value tree, under the Core schema or the YAML 1.1 types, and writes
@@ -7,12 +7,12 @@ terminates, nothing is `@unsafe`, and it needs nothing but Base.
 
 ## Install
 
-From BendHub (not published yet; the version is a placeholder):
+From BendHub:
 
 ```python
-import bend-yaml@0.0.0/yaml.bend as Y
-import bend-yaml@0.0.0/value.bend as V
-import bend-yaml@0.0.0/token.bend as T
+import yaml-for-bend@0.1.0.0/yaml.bend as Y
+import yaml-for-bend@0.1.0.0/value.bend as V
+import yaml-for-bend@0.1.0.0/token.bend as T
 ```
 
 Or copy `src/` into your project and import `./src/yaml.bend` and the
@@ -215,7 +215,7 @@ Bend defs must come after the defs they call; the scripts run
 
 The scripts run `bend` locally. To run it on another machine, set
 `BEND_HOST` to an ssh destination: the project is copied there with
-rsync, to `BEND_DIR` (default `bend-yaml` in the remote home), commands
+rsync, to `BEND_DIR` (default `yaml-for-bend` in the remote home), commands
 run in that copy, and built binaries are copied back to `build/`.
 `BEND_BIN` names the bend command, locally or remotely (default `bend`).
 
