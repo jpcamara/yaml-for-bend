@@ -7,6 +7,8 @@ import ./src/value.bend as V
 import ./src/emit.bend as E
 import ./src/yaml.bend as Y
 import ./src/compose.bend as C
+import ./src/core.bend as Core
+import ./src/yaml11.bend as Y11
 
 # Writing
 # -------
@@ -96,11 +98,71 @@ law core_no_merge:
 # -------
 
 # Aliases can't make a small text a huge tree: past the limit, it fails.
-# With its aliases copied, this document is 20 nodes: the mapping, two
-# keys, a list of four and a list of three copies of it.
+# The three aliases copy a list of three, four nodes each: 12 nodes.
 law aliases_limited:
-  {Result.is_fail(&2, &2, T.Error, V.Yaml, Y.load.with(C.Core{}, 12n, "a: &a [x, x, x]\nb: [*a, *a, *a]")) == True{} : Bool}
+  {Result.is_fail(&2, &2, T.Error, V.Yaml, Y.load.with(C.Core{}, C.Limits{100n, 10n, 11n, 10n}, "a: &a [x, x, x]\nb: [*a, *a, *a]")) == True{} : Bool}
 
 # At the limit, the same text loads.
 law aliases_allowed:
-  {Result.is_done(&2, &2, T.Error, V.Yaml, Y.load.with(C.Core{}, 20n, "a: &a [x, x, x]\nb: [*a, *a, *a]")) == True{} : Bool}
+  {Result.is_done(&2, &2, T.Error, V.Yaml, Y.load.with(C.Core{}, C.Limits{100n, 10n, 12n, 10n}, "a: &a [x, x, x]\nb: [*a, *a, *a]")) == True{} : Bool}
+
+# Limits
+# ------
+
+# A text past the size limit is refused before it is read.
+law size_limited:
+  {Y.load.with(C.Core{}, C.Limits{3n, 10n, 10n, 10n}, "abcd") ==
+    Fail{T.Error{"found a text longer than the size limit of 3 characters", T.Mark{0n, 0n, 0n}, T.Limit{}}} : Result<&2, &2, T.Error, V.Yaml>}
+
+# Block collections can't nest past the depth limit.
+law depth_limited_block:
+  {Y.load.with(C.Core{}, C.Limits{100n, 2n, 10n, 10n}, "- - - x") ==
+    Fail{T.Error{"found nesting deeper than the depth limit of 2", T.Mark{0n, 4n, 4n}, T.Limit{}}} : Result<&2, &2, T.Error, V.Yaml>}
+
+# Nor can flow collections.
+law depth_limited_flow:
+  {Y.load.with(C.Core{}, C.Limits{100n, 2n, 10n, 10n}, "[[[x]]]") ==
+    Fail{T.Error{"found nesting deeper than the depth limit of 2", T.Mark{0n, 2n, 2n}, T.Limit{}}} : Result<&2, &2, T.Error, V.Yaml>}
+
+# At the depth limit, the same nesting loads.
+law depth_allowed:
+  {Y.load.with(C.Core{}, C.Limits{100n, 2n, 10n, 10n}, "[[x]]") == Done{V.Seq{[V.Seq{[V.Str{"x"}]}]}} : Result<&2, &2, T.Error, V.Yaml>}
+
+# A number in another base can't be longer than the digits limit.
+law digits_limited:
+  {Y.load.with(C.Core{}, C.Limits{100n, 10n, 10n, 3n}, "0x1234") ==
+    Fail{T.Error{"found a number in another base longer than the digits limit of 3", T.Mark{0n, 0n, 0n}, T.Limit{}}} : Result<&2, &2, T.Error, V.Yaml>}
+
+# Quoted, the same text is a string, and the limit doesn't apply.
+law digits_quoted:
+  {Y.load.with(C.Core{}, C.Limits{100n, 10n, 10n, 3n}, "'0x1234'") == Done{V.Str{"0x1234"}} : Result<&2, &2, T.Error, V.Yaml>}
+
+# Tags
+# ----
+
+# No tag runs code. A scalar tag the Core schema doesn't know is kept with
+# its text, as data.
+law core_unknown_tag:
+  for tag: String
+  for s: String
+  for unknown: {Core.known(tag) == False{} : Bool}
+  {Core.tagged(tag, s) == Done{V.Tagged{tag, V.Str{s}}} : Result<&2, &2, String, V.Yaml>}
+
+# The same under YAML 1.1.
+law v11_unknown_tag:
+  for tag: String
+  for s: String
+  for unknown: {Y11.known(tag) == False{} : Bool}
+  {Y11.tagged(tag, s) == Done{V.Tagged{tag, V.Str{s}}} : Result<&2, &2, String, V.Yaml>}
+
+# And a collection's tag is kept with the collection.
+law unknown_collection_tag:
+  for tag: String
+  for v: V.Yaml
+  for unknown: {Core.known.collection(tag) == False{} : Bool}
+  {Core.collection(tag, v) == V.Tagged{tag, v} : V.Yaml}
+
+# A program's tag, as Psych, PyYAML and SnakeYAML read them to build an
+# object, is only data here.
+law object_tag_is_data:
+  {Y.load("!ruby/object:Kernel {cmd: id}") == Done{V.Tagged{"!ruby/object:Kernel", V.Mapping{[V.Entry{V.Str{"cmd"}, V.Str{"id"}}]}}} : Result<&2, &2, T.Error, V.Yaml>}

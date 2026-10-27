@@ -76,6 +76,11 @@ def int.of(+s: String) -> Maybe<&2, String>:
     u => when(Maybe<&2, String>, R.matches(oct.pat(), s), u => Some{N.int.text(False{}, String.drop(s, 2n), 8n)},
       u => when(Maybe<&2, String>, R.matches(hex.pat(), s), u => Some{N.int.text(False{}, String.drop(s, 2n), 16n)}, u => None{})))
 
+# Whether +s+ is an integer in a base other than ten, which takes time
+# that grows with the square of its length to read.
+def in.base(+s: String) -> Bool:
+  Bool.or(R.matches(oct.pat(), s), R.matches(hex.pat(), s))
+
 # A float's text, if +s+ is one: as written, or ".inf", "-.inf", ".nan".
 def float.of(+s: String) -> Maybe<&2, String>:
   +u = unsigned(s)
@@ -130,17 +135,45 @@ def float.yaml(m: Maybe<&2, String>, i: Maybe<&2, String>) -> Maybe<&2, V.Yaml>:
         case None{}:
           None{}
 
-# A scalar with a tag: !!str, !!null, !!bool, !!int and !!float read the
-# text; "!" is a string; another tag is kept.
-def tagged(+tag: String, +s: String) -> Result<&2, &2, String, V.Yaml>:
+# The tags whose text the Core schema reads: "!", !!str, !!null, !!bool,
+# !!int and !!float.
+def known(+tag: String) -> Bool:
+  Bool.or(Bool.or(String.eq(tag, "!"), String.eq(tag, yaml.tag("str"))),
+    Bool.or(Bool.or(String.eq(tag, yaml.tag("null")), String.eq(tag, yaml.tag("bool"))), Bool.or(String.eq(tag, yaml.tag("int")), String.eq(tag, yaml.tag("float")))))
+
+# A scalar's text read by a known tag: "!" and !!str are a string, and
+# !!null, !!bool, !!int and !!float must be one.
+def read(+tag: String, +s: String) -> Result<&2, &2, String, V.Yaml>:
   when(Result<&2, &2, String, V.Yaml>, Bool.or(String.eq(tag, "!"), String.eq(tag, yaml.tag("str"))), u => Done{V.Str{s}},
     u => when(Result<&2, &2, String, V.Yaml>, String.eq(tag, yaml.tag("null")), u => must(Bool.pick(Maybe<&2, V.Yaml>, is_null(s), Some{V.Null{}}, None{}), "!!null", s),
       u => when(Result<&2, &2, String, V.Yaml>, String.eq(tag, yaml.tag("bool")),
         u => must(Bool.pick(Maybe<&2, V.Yaml>, is_true(s), Some{V.Boolean{True{}}}, Bool.pick(Maybe<&2, V.Yaml>, is_false(s), Some{V.Boolean{False{}}}, None{})), "!!bool", s),
         u => when(Result<&2, &2, String, V.Yaml>, String.eq(tag, yaml.tag("int")), u => must(int.yaml(int.of(s)), "!!int", s),
-          u => when(Result<&2, &2, String, V.Yaml>, String.eq(tag, yaml.tag("float")), u => must(float.yaml(float.of(s), int.of(s)), "!!float", s),
-            u => Done{V.Tagged{tag, V.Str{s}}})))))
+          u => must(float.yaml(float.of(s), int.of(s)), "!!float", s)))))
 
-# A collection with a tag: "!", !!seq and !!map are plain; another is kept.
-def collection(+tag: String, +v: V.Yaml) -> V.Yaml:
-  Bool.pick(V.Yaml, Bool.or(String.eq(tag, "!"), Bool.or(String.eq(tag, yaml.tag("seq")), String.eq(tag, yaml.tag("map")))), v, V.Tagged{tag, v})
+# A tag that isn't known is kept with the text, as data: no tag runs code.
+def read.or.keep(hit: Bool, +tag: String, +s: String) -> Result<&2, &2, String, V.Yaml>:
+  match hit:
+    case True{}:
+      read(tag, s)
+    case False{}:
+      Done{V.Tagged{tag, V.Str{s}}}
+
+# A scalar with a tag.
+def tagged(+tag: String, +s: String) -> Result<&2, &2, String, V.Yaml>:
+  read.or.keep(known(tag), tag, s)
+
+# The tags that leave a collection as it is: "!", !!seq and !!map.
+def known.collection(+tag: String) -> Bool:
+  Bool.or(String.eq(tag, "!"), Bool.or(String.eq(tag, yaml.tag("seq")), String.eq(tag, yaml.tag("map"))))
+
+def collection.or.keep(hit: Bool, +tag: String, v: V.Yaml) -> V.Yaml:
+  match hit:
+    case True{}:
+      v
+    case False{}:
+      V.Tagged{tag, v}
+
+# A collection with a tag: another tag is kept with it, as data.
+def collection(+tag: String, v: V.Yaml) -> V.Yaml:
+  collection.or.keep(known.collection(tag), tag, v)

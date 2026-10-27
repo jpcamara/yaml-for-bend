@@ -43,11 +43,13 @@ type Tok is Data:
 type Token is Data:
   Token{tok: Tok, start: Mark, end: Mark}
 
-# Why a text didn't load: it isn't YAML, or it is but the schema can't
-# load it (a bad !!int, an unknown alias, a repeated key).
+# Why a text didn't load: it isn't YAML; it is, but the schema can't load
+# it (a bad !!int, an unknown alias, a repeated key); or it would pass one
+# of the limits a load sets (its size, its depth, its aliases).
 type Cause is Data:
   Syntax{}
   Content{}
+  Limit{}
 
 # What went wrong, where, and why. A syntax error reads as a problem and
 # what was being read: "did not find expected key while parsing a block

@@ -125,7 +125,7 @@ def int.of.digits(+ds: String) -> String:
   when(String, String.starts_with(ds, "0b"), u => N.big.show(N.big.read(String.drop(ds, 2n), 2n, [])),
     u => when(String, String.starts_with(ds, "0x"), u => N.big.show(N.big.read(String.drop(ds, 2n), 16n, [])),
       u => when(String, String.contains(ds, ":"), u => N.big.show(sexa.big(String.split(ds, ':'))),
-        u => when(String, String.starts_with(ds, "0"), u => N.big.show(N.big.read(ds, 8n, [])), u => N.big.show(N.big.read(ds, 10n, []))))))
+        u => when(String, String.starts_with(ds, "0"), u => N.big.show(N.big.read(ds, 8n, [])), u => N.decimal(ds)))))
 
 # An integer's decimal text; +s+ already matched one of the integer forms.
 def int.text(+s: String) -> String:
@@ -135,6 +135,12 @@ def int.text(+s: String) -> String:
 def is_int(+s: String) -> Bool:
   Bool.or(Bool.or(R.matches(dec.pat(), s), R.matches(oct.pat(), s)),
     Bool.or(Bool.or(R.matches(hex.pat(), s), R.matches(bin.pat(), s)), R.matches(sexa.int.pat(), s)))
+
+# Whether +s+ is an integer or float in a base other than ten, which takes
+# time that grows with the square of its length to read.
+def in.base(+s: String) -> Bool:
+  Bool.or(Bool.or(R.matches(oct.pat(), s), R.matches(hex.pat(), s)),
+    Bool.or(Bool.or(R.matches(bin.pat(), s), R.matches(sexa.int.pat(), s)), R.matches(sexa.float.pat(), s)))
 
 def before.dot(s: String) -> String:
   match s:
@@ -218,12 +224,29 @@ def float.yaml(m: Maybe<&2, String>, i: Maybe<&2, String>) -> Maybe<&2, V.Yaml>:
 def bool.yaml(+s: String) -> Maybe<&2, V.Yaml>:
   Bool.pick(Maybe<&2, V.Yaml>, is_true(s), Some{V.Boolean{True{}}}, Bool.pick(Maybe<&2, V.Yaml>, is_false(s), Some{V.Boolean{False{}}}, None{}))
 
-# A scalar with a tag: the standard types read the text in their 1.1 forms,
-# !!merge is the merge key, "!" is a string; another tag is kept.
-def tagged(+tag: String, +s: String) -> Result<&2, &2, String, V.Yaml>:
+# The tags whose text YAML 1.1 reads: "!", !!str, !!merge, !!null, !!bool,
+# !!int and !!float.
+def known(+tag: String) -> Bool:
+  Bool.or(Bool.or(Bool.or(String.eq(tag, "!"), String.eq(tag, C.yaml.tag("str"))), String.eq(tag, C.yaml.tag("merge"))),
+    Bool.or(Bool.or(String.eq(tag, C.yaml.tag("null")), String.eq(tag, C.yaml.tag("bool"))), Bool.or(String.eq(tag, C.yaml.tag("int")), String.eq(tag, C.yaml.tag("float")))))
+
+# A scalar's text read by a known tag, in its 1.1 forms: !!merge is the
+# merge key, "!" and !!str are a string.
+def read(+tag: String, +s: String) -> Result<&2, &2, String, V.Yaml>:
   when(Result<&2, &2, String, V.Yaml>, Bool.or(Bool.or(String.eq(tag, "!"), String.eq(tag, C.yaml.tag("str"))), String.eq(tag, C.yaml.tag("merge"))), u => Done{V.Str{s}},
     u => when(Result<&2, &2, String, V.Yaml>, String.eq(tag, C.yaml.tag("null")), u => C.must(Bool.pick(Maybe<&2, V.Yaml>, C.is_null(s), Some{V.Null{}}, None{}), "!!null", s),
       u => when(Result<&2, &2, String, V.Yaml>, String.eq(tag, C.yaml.tag("bool")), u => C.must(bool.yaml(s), "!!bool", s),
         u => when(Result<&2, &2, String, V.Yaml>, String.eq(tag, C.yaml.tag("int")), u => C.must(int.yaml(int.of(s)), "!!int", s),
-          u => when(Result<&2, &2, String, V.Yaml>, String.eq(tag, C.yaml.tag("float")), u => C.must(float.yaml(float.of(s), int.of(s)), "!!float", s),
-            u => Done{V.Tagged{tag, V.Str{s}}})))))
+          u => C.must(float.yaml(float.of(s), int.of(s)), "!!float", s)))))
+
+# A tag that isn't known is kept with the text, as data: no tag runs code.
+def read.or.keep(hit: Bool, +tag: String, +s: String) -> Result<&2, &2, String, V.Yaml>:
+  match hit:
+    case True{}:
+      read(tag, s)
+    case False{}:
+      Done{V.Tagged{tag, V.Str{s}}}
+
+# A scalar with a tag.
+def tagged(+tag: String, +s: String) -> Result<&2, &2, String, V.Yaml>:
+  read.or.keep(known(tag), tag, s)

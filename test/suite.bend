@@ -14,7 +14,7 @@ def each(paths: List<&2, String>) -> IO(Unit):
     case Con{+p, rest}:
       do IO<Unit>:
         s : String <- F.read(p)
-        IO.write("### " ++ p ++ "\n" ++ P.parsed.text(P.events(s)))
+        IO.write("### " ++ p ++ "\n" ++ P.parsed.text(P.events(s, 256n)))
         each(rest)
 
 def main() -> IO(Unit):

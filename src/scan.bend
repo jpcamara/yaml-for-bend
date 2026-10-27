@@ -27,16 +27,18 @@ type Cur is Data:
 
 # A place a simple key may start: whether one still may, whether it must (a
 # block key at the indentation), the number its first token has, and where.
+# Each level also keeps where the oldest key still possible at or below it
+# started (+low+), so finding stale keys needn't look at every level.
 type SKey is Data:
-  SKey{possible: Bool, required: Bool, number: Nat, at: T.Mark, tab: Bool}
+  SKey{possible: Bool, required: Bool, number: Nat, at: T.Mark, tab: Bool, low: Maybe<&2, T.Mark>}
 
 # The scanner: the cursor, the block indentation plus one (0 outside any
 # block collection) and the ones it returns to, how deep in flow collections
 # it is, whether a simple key may start here, one possible key per flow
 # level (the block level last), the tokens so far (newest first) and their
-# count.
+# count, and how deep flow collections may nest.
 type Sc is Data:
-  Sc{cur: Cur, ind: Nat, inds: List<&2, Nat>, flow: Nat, allowed: Bool, tab: Bool, keys: List<&2, SKey>, out: List<&2, T.Token>, n: Nat}
+  Sc{cur: Cur, ind: Nat, inds: List<&2, Nat>, flow: Nat, allowed: Bool, tab: Bool, keys: List<&2, SKey>, out: List<&2, T.Token>, n: Nat, max: Nat}
 
 # A step goes on, or stops: at the stream's end or at an error, as the last
 # token says.
@@ -317,7 +319,7 @@ def cur.col(c: Cur) -> Nat:
 
 def sc.cur(st: Sc) -> Cur:
   match st:
-    case Sc{cur, ind, inds, flow, allowed, tab, keys, out, n}:
+    case Sc{cur, ind, inds, flow, allowed, tab, keys, out, n, max}:
       cur
 
 def sc.s(st: Sc) -> String:
@@ -331,51 +333,56 @@ def sc.col(st: Sc) -> Nat:
 
 def sc.ind(st: Sc) -> Nat:
   match st:
-    case Sc{cur, ind, inds, flow, allowed, tab, keys, out, n}:
+    case Sc{cur, ind, inds, flow, allowed, tab, keys, out, n, max}:
       ind
 
 def sc.flow(st: Sc) -> Nat:
   match st:
-    case Sc{cur, ind, inds, flow, allowed, tab, keys, out, n}:
+    case Sc{cur, ind, inds, flow, allowed, tab, keys, out, n, max}:
       flow
 
 def sc.in_flow(st: Sc) -> Bool:
   Nat.is_gt(sc.flow(st), 0n)
 
+def sc.max(st: Sc) -> Nat:
+  match st:
+    case Sc{cur, ind, inds, flow, allowed, tab, keys, out, n, max}:
+      max
+
 def sc.tab(st: Sc) -> Bool:
   match st:
-    case Sc{cur, ind, inds, flow, allowed, tab, keys, out, n}:
+    case Sc{cur, ind, inds, flow, allowed, tab, keys, out, n, max}:
       tab
 
 def sc.allowed(st: Sc) -> Bool:
   match st:
-    case Sc{cur, ind, inds, flow, allowed, tab, keys, out, n}:
+    case Sc{cur, ind, inds, flow, allowed, tab, keys, out, n, max}:
       allowed
 
 def sc.keys(st: Sc) -> List<&2, SKey>:
   match st:
-    case Sc{cur, ind, inds, flow, allowed, tab, keys, out, n}:
+    case Sc{cur, ind, inds, flow, allowed, tab, keys, out, n, max}:
       keys
 
 def sc.out(st: Sc) -> List<&2, T.Token>:
   match st:
-    case Sc{cur, ind, inds, flow, allowed, tab, keys, out, n}:
+    case Sc{cur, ind, inds, flow, allowed, tab, keys, out, n, max}:
       out
 
 def sc.with.cur(st: Sc, c: Cur) -> Sc:
   match st:
-    case Sc{cur, ind, inds, flow, allowed, tab, keys, out, n}:
-      Sc{c, ind, inds, flow, allowed, tab, keys, out, n}
+    case Sc{cur, ind, inds, flow, allowed, tab, keys, out, n, max}:
+      Sc{c, ind, inds, flow, allowed, tab, keys, out, n, max}
 
 def sc.allow(st: Sc, b: Bool) -> Sc:
   match st:
-    case Sc{cur, ind, inds, flow, allowed, tab, keys, out, n}:
-      Sc{cur, ind, inds, flow, b, tab, keys, out, n}
+    case Sc{cur, ind, inds, flow, allowed, tab, keys, out, n, max}:
+      Sc{cur, ind, inds, flow, b, tab, keys, out, n, max}
 
 def sc.with.keys(st: Sc, ks: List<&2, SKey>) -> Sc:
   match st:
-    case Sc{cur, ind, inds, flow, allowed, tab, keys, out, n}:
-      Sc{cur, ind, inds, flow, allowed, tab, ks, out, n}
+    case Sc{cur, ind, inds, flow, allowed, tab, keys, out, n, max}:
+      Sc{cur, ind, inds, flow, allowed, tab, ks, out, n, max}
 
 def skip(+st: Sc, k: Nat) -> Sc:
   sc.with.cur(st, adv.n(k, sc.cur(st)))
@@ -383,8 +390,8 @@ def skip(+st: Sc, k: Nat) -> Sc:
 # A token from +start+ to +end+.
 def emit.span(st: Sc, tok: T.Tok, start: T.Mark, end: T.Mark) -> Sc:
   match st:
-    case Sc{cur, ind, inds, flow, allowed, tab, keys, out, n}:
-      Sc{cur, ind, inds, flow, allowed, tab, keys, T.Token{tok, start, end} <> out, 1n+n}
+    case Sc{cur, ind, inds, flow, allowed, tab, keys, out, n, max}:
+      Sc{cur, ind, inds, flow, allowed, tab, keys, T.Token{tok, start, end} <> out, 1n+n, max}
 
 # A token from +start+ to here.
 def emit(+st: Sc, tok: T.Tok, start: T.Mark) -> Sc:
@@ -396,6 +403,10 @@ def single(+st: Sc, tok: T.Tok) -> Sc:
 
 def fail(+st: Sc, why: String, +at: T.Mark) -> Step:
   Stop{emit(st, T.Broken{T.Error{why, at, T.Syntax{}}}, at)}
+
+# A limit reached: the error names it.
+def fail.limit(+st: Sc, why: String) -> Step:
+  Stop{emit(st, T.Broken{T.Error{why, sc.at(st), T.Limit{}}}, sc.at(st))}
 
 def fail.with(+st: Sc, e: T.Error) -> Step:
   match e:
@@ -442,7 +453,7 @@ def json.before(out: List<&2, T.Token>) -> Bool:
 def key.top(keys: List<&2, SKey>) -> SKey:
   match keys:
     case Nil{}:
-      SKey{False{}, False{}, 0n, T.Mark{0n, 0n, 0n}, False{}}
+      SKey{False{}, False{}, 0n, T.Mark{0n, 0n, 0n}, False{}, None{}}
     case Con{k, rest}:
       k
 
@@ -453,25 +464,47 @@ def key.or(r: Result<&2, &2, T.Error, List<&2, SKey>>, +st: Sc) -> Step:
     case Done{ks}:
       Go{sc.with.keys(st, ks)}
 
+def low.of(keys: List<&2, SKey>) -> Maybe<&2, T.Mark>:
+  match keys:
+    case Nil{}:
+      None{}
+    case Con{k, rest}:
+      match k:
+        case SKey{possible, required, number, at, tab, low}:
+          low
+
 def key.removed(keys: List<&2, SKey>) -> Result<&2, &2, T.Error, List<&2, SKey>>:
   match keys:
     case Nil{}:
       Done{[]}
-    case Con{k, rest}:
+    case Con{k, +rest}:
       match k:
-        case SKey{+possible, +required, number, +at, tab}:
+        case SKey{+possible, +required, number, +at, tab, low}:
           when(Result<&2, &2, T.Error, List<&2, SKey>>, Bool.and(possible, required),
             u => Fail{T.Error{"could not find expected ':' while scanning a simple key", at, T.Syntax{}}},
-            u => Done{SKey{False{}, required, number, at, tab} <> rest})
+            u => Done{SKey{False{}, required, number, at, tab, low.of(rest)} <> rest})
 
 # The key on top can no longer be; an error if it had to be.
 def remove.key(+st: Sc) -> Step:
   key.or(key.removed(sc.keys(st)), st)
 
+# A level's low: the one below it, or its own key when that is possible.
+def low.with(below: Maybe<&2, T.Mark>, possible: Bool, at: T.Mark) -> Maybe<&2, T.Mark>:
+  match below:
+    case Some{m}:
+      Some{m}
+    case None{}:
+      match possible:
+        case True{}:
+          Some{at}
+        case False{}:
+          None{}
+
 def key.put(st: Sc, required: Bool) -> Sc:
   match st:
-    case Sc{+cur, ind, inds, flow, allowed, +tab, keys, out, +n}:
-      Sc{cur, ind, inds, flow, allowed, tab, SKey{True{}, required, n, cur.at(cur), tab} <> List.drop(&2, SKey, keys, 1n), out, n}
+    case Sc{+cur, ind, inds, flow, allowed, +tab, keys, out, +n, max}:
+      +rest = List.drop(&2, SKey, keys, 1n)
+      Sc{cur, ind, inds, flow, allowed, tab, SKey{True{}, required, n, cur.at(cur), tab, low.with(low.of(rest), True{}, cur.at(cur))} <> rest, out, n, max}
 
 def key.saved(r: Step, +required: Bool) -> Step:
   match r:
@@ -486,26 +519,39 @@ def save.key(+st: Sc) -> Step:
   +required = Bool.and(Nat.is_eq(sc.flow(st), 0n), Nat.is_eq(sc.ind(st), 1n+sc.col(st)))
   when(Step, sc.allowed(st), u => key.saved(remove.key(st), required), u => Go{st})
 
-def stale.cons(k: SKey, r: Result<&2, &2, T.Error, List<&2, SKey>>) -> Result<&2, &2, T.Error, List<&2, SKey>>:
+# A simple key stays on one line and within 1024 characters.
+def is_stale(+kat: T.Mark, +at: T.Mark) -> Bool:
+  Bool.or(Nat.is_lt(T.mark.line(kat), T.mark.line(at)), Nat.is_lt(Nat.add(T.mark.idx(kat), 1024n), T.mark.idx(at)))
+
+def low.stale(low: Maybe<&2, T.Mark>, +at: T.Mark) -> Bool:
+  match low:
+    case None{}:
+      False{}
+    case Some{m}:
+      is_stale(m, at)
+
+def stale.cons(+possible: Bool, required: Bool, number: Nat, +kat: T.Mark, tab: Bool, r: Result<&2, &2, T.Error, List<&2, SKey>>) -> Result<&2, &2, T.Error, List<&2, SKey>>:
   match r:
     case Fail{e}:
       Fail{e}
-    case Done{ks}:
-      Done{k <> ks}
+    case Done{+ks}:
+      Done{SKey{possible, required, number, kat, tab, low.with(low.of(ks), possible, kat)} <> ks}
 
-# Keys left behind: a simple key stays on one line and within 1024
-# characters.
+# Keys left behind are no longer possible. Keys go stale oldest first, so
+# a level whose oldest possible key is still fresh has nothing stale at or
+# below it, and the search stops there.
 def stale.go(keys: List<&2, SKey>, +at: T.Mark) -> Result<&2, &2, T.Error, List<&2, SKey>>:
   match keys:
     case Nil{}:
       Done{[]}
-    case Con{k, rest}:
+    case Con{k, +rest}:
       match k:
-        case SKey{+possible, +required, number, +kat, tab}:
-          +old = Bool.and(possible, Bool.or(Nat.is_lt(T.mark.line(kat), T.mark.line(at)), Nat.is_lt(Nat.add(T.mark.idx(kat), 1024n), T.mark.idx(at))))
-          when(Result<&2, &2, T.Error, List<&2, SKey>>, Bool.and(old, required),
-            u => Fail{T.Error{"could not find expected ':' while scanning a simple key", kat, T.Syntax{}}},
-            u => stale.cons(SKey{Bool.and(possible, Bool.not(old)), required, number, kat, tab}, stale.go(rest, at)))
+        case SKey{+possible, +required, +number, +kat, +tab, +low}:
+          +old = Bool.and(possible, is_stale(kat, at))
+          when(Result<&2, &2, T.Error, List<&2, SKey>>, Bool.not(low.stale(low, at)), u => Done{SKey{possible, required, number, kat, tab, low} <> rest},
+            u => when(Result<&2, &2, T.Error, List<&2, SKey>>, Bool.and(old, required),
+              u => Fail{T.Error{"could not find expected ':' while scanning a simple key", kat, T.Syntax{}}},
+              u => stale.cons(Bool.and(possible, Bool.not(old)), required, number, kat, tab, stale.go(rest, at))))
 
 def stale(+st: Sc) -> Step:
   key.or(stale.go(sc.keys(st), sc.at(st)), st)
@@ -514,24 +560,24 @@ def key.cleared(keys: List<&2, SKey>) -> List<&2, SKey>:
   match keys:
     case Nil{}:
       []
-    case Con{k, rest}:
+    case Con{k, +rest}:
       match k:
-        case SKey{possible, required, number, at, tab}:
-          SKey{False{}, required, number, at, tab} <> rest
+        case SKey{possible, required, number, at, tab, low}:
+          SKey{False{}, required, number, at, tab, low.of(rest)} <> rest
 
 def flow.push(st: Sc) -> Sc:
   match st:
-    case Sc{cur, ind, inds, flow, allowed, tab, keys, out, n}:
-      Sc{cur, ind, inds, 1n+flow, allowed, tab, SKey{False{}, False{}, 0n, T.Mark{0n, 0n, 0n}, False{}} <> keys, out, n}
+    case Sc{cur, ind, inds, flow, allowed, tab, +keys, out, n, max}:
+      Sc{cur, ind, inds, 1n+flow, allowed, tab, SKey{False{}, False{}, 0n, T.Mark{0n, 0n, 0n}, False{}, low.of(keys)} <> keys, out, n, max}
 
 def flow.pop(st: Sc) -> Sc:
   match st:
-    case Sc{cur, ind, inds, flow, allowed, tab, keys, out, n}:
+    case Sc{cur, ind, inds, flow, allowed, tab, keys, out, n, max}:
       match flow:
         case 0n:
-          Sc{cur, ind, inds, 0n, allowed, tab, keys, out, n}
+          Sc{cur, ind, inds, 0n, allowed, tab, keys, out, n, max}
         case 1n+f:
-          Sc{cur, ind, inds, f, allowed, tab, List.drop(&2, SKey, keys, 1n), out, n}
+          Sc{cur, ind, inds, f, allowed, tab, List.drop(&2, SKey, keys, 1n), out, n, max}
 
 # Indentation
 # -----------
@@ -557,8 +603,8 @@ def insert(out: List<&2, T.Token>, n: Nat, number: Maybe<&2, Nat>, t: T.Token) -
 
 def roll.do(st: Sc, col: Nat, number: Maybe<&2, Nat>, tok: T.Tok, +at: T.Mark) -> Sc:
   match st:
-    case Sc{cur, ind, inds, flow, allowed, tab, keys, out, +n}:
-      Sc{cur, 1n+col, ind <> inds, flow, allowed, tab, keys, insert(out, n, number, T.Token{tok, at, at}), 1n+n}
+    case Sc{cur, ind, inds, flow, allowed, tab, keys, out, +n, max}:
+      Sc{cur, 1n+col, ind <> inds, flow, allowed, tab, keys, insert(out, n, number, T.Token{tok, at, at}), 1n+n, max}
 
 # A block collection starts at +col+ when that's deeper than the indentation.
 def roll(+st: Sc, +col: Nat, number: Maybe<&2, Nat>, tok: T.Tok, at: T.Mark) -> Sc:
@@ -571,15 +617,15 @@ def unroll.go(inds: List<&2, Nat>, +ind: Nat, +lim: Nat, +at: T.Mark, +out: List
     case Con{+h, +t}:
       when(Lay, Nat.is_gt(ind, lim), u => unroll.go(t, h, lim, at, T.Token{T.BEnd{}, at, at} <> out, 1n+n), u => Lay{ind, h <> t, out, n})
 
-def unrolled(l: Lay, cur: Cur, flow: Nat, allowed: Bool, tab: Bool, keys: List<&2, SKey>) -> Sc:
+def unrolled(l: Lay, cur: Cur, flow: Nat, allowed: Bool, tab: Bool, keys: List<&2, SKey>, max: Nat) -> Sc:
   match l:
     case Lay{ind, inds, out, n}:
-      Sc{cur, ind, inds, flow, allowed, tab, keys, out, n}
+      Sc{cur, ind, inds, flow, allowed, tab, keys, out, n, max}
 
 def unroll.do(st: Sc, +lim: Nat) -> Sc:
   match st:
-    case Sc{+cur, ind, inds, flow, allowed, tab, keys, out, n}:
-      unrolled(unroll.go(inds, ind, lim, cur.at(cur), out, n), cur, flow, allowed, tab, keys)
+    case Sc{+cur, ind, inds, flow, allowed, tab, keys, out, n, max}:
+      unrolled(unroll.go(inds, ind, lim, cur.at(cur), out, n), cur, flow, allowed, tab, keys, max)
 
 # Block collections deeper than +lim+ (a column plus one) end.
 def unroll(+st: Sc, +lim: Nat) -> Sc:
@@ -620,8 +666,8 @@ def skipped(k: Skipped, st: Sc) -> Sc:
   match k:
     case Skipped{cur, allowed, tab, nl, sp, bad}:
       match st:
-        case Sc{c, ind, inds, flow, a, b, keys, out, n}:
-          Sc{cur, ind, inds, flow, allowed, tab, keys, out, n}
+        case Sc{c, ind, inds, flow, a, b, keys, out, n, max}:
+          Sc{cur, ind, inds, flow, allowed, tab, keys, out, n, max}
 
 # Whether the last token was a plain or block scalar, which end past the
 # blanks after them, so a "#" here follows a blank.
@@ -1305,8 +1351,10 @@ def directive(+st: Sc) -> Step:
 # Tokens
 # ------
 
+# "[" or "{", unless flow collections already nest as deep as allowed.
 def flow.start(+st: Sc, t: T.Tok) -> Step:
-  then(save.key(st), st => Go{single(sc.allow(flow.push(st), True{}), t)})
+  when(Step, Nat.is_ge(sc.flow(st), sc.max(st)), u => fail.limit(st, "found nesting deeper than the depth limit of " ++ Nat.show(sc.max(st))),
+    u => then(save.key(st), st => Go{single(sc.allow(flow.push(st), True{}), t)}))
 
 def flow.end(+st: Sc, t: T.Tok) -> Step:
   then(remove.key(st), st => Go{single(sc.allow(flow.pop(st), False{}), t)})
@@ -1347,14 +1395,14 @@ def value.alone(+st: Sc) -> Step:
 
 def insert.key(st: Sc, number: Nat, +at: T.Mark) -> Sc:
   match st:
-    case Sc{cur, ind, inds, flow, allowed, tab, keys, out, +n}:
-      Sc{cur, ind, inds, flow, allowed, tab, key.cleared(keys), insert(out, n, Some{number}, T.Token{T.KeyTok{}, at, at}), 1n+n}
+    case Sc{cur, ind, inds, flow, allowed, tab, keys, out, +n, max}:
+      Sc{cur, ind, inds, flow, allowed, tab, key.cleared(keys), insert(out, n, Some{number}, T.Token{T.KeyTok{}, at, at}), 1n+n, max}
 
 # ": ": a value. When a simple key waits, it becomes a key: a KeyTok goes
 # before it, and a block mapping may start at its column.
 def value.with(k: SKey, +st: Sc) -> Step:
   match k:
-    case SKey{possible, required, +number, +at, tab}:
+    case SKey{possible, required, +number, +at, tab, low}:
       +rolls = Bool.and(Nat.is_eq(sc.flow(st), 0n), Nat.is_lt(sc.ind(st), 1n+T.mark.col(at)))
       when(Step, possible,
         u => when(Step, Bool.and(tab, rolls), u => fail(st, "found a tab character that violates indentation", at),
@@ -1470,15 +1518,15 @@ def unprintable(s: String, +at: T.Mark) -> Maybe<&2, T.Mark>:
 def stream.start() -> T.Token:
   T.Token{T.StreamStart{}, T.Mark{0n, 0n, 0n}, T.Mark{0n, 0n, 0n}}
 
-def scan.start(m: Maybe<&2, T.Mark>, +s: String) -> List<&2, T.Token>:
+def scan.start(m: Maybe<&2, T.Mark>, +s: String, max: Nat) -> List<&2, T.Token>:
   match m:
     case Some{+at}:
       [stream.start(), T.Token{T.Broken{T.Error{"control characters are not allowed", at, T.Syntax{}}}, at, at}]
     case None{}:
-      scan.run(Nat.add(String.length(s), 4n), Go{Sc{Cur{s, T.Mark{0n, 0n, 0n}, String.length(s)}, 0n, [], 0n, True{}, False{}, [SKey{False{}, False{}, 0n, T.Mark{0n, 0n, 0n}, False{}}], [stream.start()], 1n}})
+      scan.run(Nat.add(String.length(s), 4n), Go{Sc{Cur{s, T.Mark{0n, 0n, 0n}, String.length(s)}, 0n, [], 0n, True{}, False{}, [SKey{False{}, False{}, 0n, T.Mark{0n, 0n, 0n}, False{}, None{}}], [stream.start()], 1n, max}})
 
 # The tokens of +text+, from StreamStart to StreamEnd, or to a Broken token
-# at the first error.
-def scan(text: String) -> List<&2, T.Token>:
+# at the first error. Flow collections may nest +max+ deep.
+def scan(text: String, max: Nat) -> List<&2, T.Token>:
   +s = strip.bom(lf(text))
-  scan.start(unprintable(s, T.Mark{0n, 0n, 0n}), s)
+  scan.start(unprintable(s, T.Mark{0n, 0n, 0n}), s, max)

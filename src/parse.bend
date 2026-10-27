@@ -670,9 +670,10 @@ def p.run(fuel: Nat, s: PStep) -> Parsed:
 def parse(+toks: List<&2, T.Token>) -> Parsed:
   p.run(Nat.add(Nat.mul(List.length(&2, T.Token, toks), 8n), 16n), PGo{Ps{toks, SStreamStart{}, [], defaults(), []}})
 
-# The events of a YAML text.
-def events(text: String) -> Parsed:
-  parse(S.scan(text))
+# The events of a YAML text, with flow collections nesting at most +max+
+# deep.
+def events(text: String, max: Nat) -> Parsed:
+  parse(S.scan(text, max))
 
 def escaped.other(c: Char, rest: String) -> String:
   match c:

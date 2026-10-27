@@ -108,4 +108,4 @@ def main() -> IO(Unit):
   do IO<Unit>:
     args : List<String> <- IO.args()
     s : String <- read(path(args))
-    IO.write(show(S.scan(s)))
+    IO.write(show(S.scan(s, 256n)))

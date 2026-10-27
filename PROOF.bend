@@ -7,6 +7,8 @@ import ./src/value.bend as V
 import ./src/emit.bend as E
 import ./src/yaml.bend as Y
 import ./src/compose.bend as C
+import ./src/core.bend as Core
+import ./src/yaml11.bend as Y11
 
 # Joining texts is associative.
 def append.assoc(x: String, -y: String, -z: String) -> {String.append(String.append(x, y), z) == String.append(x, String.append(y, z)) : String}:
@@ -89,4 +91,38 @@ def Laws.v11_merge():
   {==}
 
 def Laws.core_no_merge():
+  {==}
+
+def Laws.core_unknown_tag(tag, s, unknown):
+  %Equal.sym(Bool, Core.known(tag), False{}, unknown) : {Core.read.or.keep(_, tag, s) == Done{V.Tagged{tag, V.Str{s}}} : Result<&2, &2, String, V.Yaml>}
+  {==}
+
+def Laws.v11_unknown_tag(tag, s, unknown):
+  %Equal.sym(Bool, Y11.known(tag), False{}, unknown) : {Y11.read.or.keep(_, tag, s) == Done{V.Tagged{tag, V.Str{s}}} : Result<&2, &2, String, V.Yaml>}
+  {==}
+
+def Laws.unknown_collection_tag(tag, v, unknown):
+  %Equal.sym(Bool, Core.known.collection(tag), False{}, unknown) : {Core.collection.or.keep(_, tag, v) == V.Tagged{tag, v} : V.Yaml}
+  {==}
+
+
+def Laws.size_limited():
+  {==}
+
+def Laws.depth_limited_block():
+  {==}
+
+def Laws.depth_limited_flow():
+  {==}
+
+def Laws.depth_allowed():
+  {==}
+
+def Laws.digits_limited():
+  {==}
+
+def Laws.digits_quoted():
+  {==}
+
+def Laws.object_tag_is_data():
   {==}

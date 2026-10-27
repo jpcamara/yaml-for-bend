@@ -1,0 +1,8 @@
+#!/bin/sh
+# Writes the adversarial inputs and times the reader on each, with its peak
+# memory: script/adversarial [timeout-seconds]
+# Needs Python 3. With BEND_HOST set, it builds and runs there.
+set -e
+cd "$(dirname "$0")/.."
+bend=${BEND_BIN:-bend}
+script/run "mkdir -p build && rm -rf build/adversarial && $bend test/stress.bend -o build/stress && python3 test/adversarial/gen.py build/adversarial && python3 test/adversarial/run.py build/adversarial ${1:-60}"

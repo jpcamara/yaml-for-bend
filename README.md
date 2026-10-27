@@ -76,7 +76,8 @@ and `json(v)`, which writes a value as one line of JSON.
 | `load(text)` | The one document, under the Core schema. No document is `Null`; more than one is an error. |
 | `load.all(text)` | Every document, under the Core schema. |
 | `load.v11(text)`, `load.all.v11(text)` | The same, reading the YAML 1.1 types. |
-| `load.with(schema, limit, text)`, `load.all.with(...)` | With a schema (`C.Core{}` or `C.Yaml11{}`, from `compose.bend`) and an alias limit. |
+| `load.with(schema, limits, text)`, `load.all.with(...)` | With a schema (`C.Core{}` or `C.Yaml11{}`, from `compose.bend`) and limits (see [Limits](#limits)). |
+| `limits()` | The default limits. |
 | `dump(v)`, `dump.all(vs)` | A value, or documents, as block-style YAML. |
 | `events(text)` | The parser's events, and the error that ended them, if any. |
 
@@ -84,11 +85,12 @@ Each `load` returns `Result<&2, &2, T.Error, ...>`:
 
 ```python
 type Error is Data:         # src/token.bend
-  Error{why: String, at: Mark, cause: Cause}   # Cause: Syntax{} or Content{}
+  Error{why: String, at: Mark, cause: Cause}   # Cause: Syntax{}, Content{} or Limit{}
 ```
 
 `Syntax` means the text isn't YAML; `Content` means it is, but the schema
-can't load it (a bad `!!int`, a repeated key, an unknown alias).
+can't load it (a bad `!!int`, a repeated key, an unknown alias); `Limit`
+means it went past one of the limits, which the message names.
 `T.error.show(e)` is `"did not find expected key while parsing a block
 mapping at line 2 column 1"`; lines and columns count from 1.
 
@@ -134,11 +136,11 @@ A key may appear only once in a mapping, under either schema; a repeat
 is an error. Keys are compared as values, so `1` and `"1"` differ, and
 `0x1` and `1` don't.
 
-An alias is a copy of its anchored node. A document's aliases may make at
-most 100,000 nodes, counting every copy in full, so a small text can't
-expand into a huge tree ("billion laughs"); `load.with` takes another
-limit. An alias inside the node it names would make a cycle, which a tree
-can't hold, so it is an error.
+An alias is a copy of its anchored node. The nodes aliases copy into a
+document are counted, every copy in full, against the alias limit, so a
+small text can't expand into a huge tree ("billion laughs"). An alias
+inside the node it names would make a cycle, which a tree can't hold, so
+it is an error; so a merge can't make a cycle either.
 
 ## Writing
 
@@ -158,12 +160,64 @@ same values, and each of their 332 documents comes back the same through
 
 ## Limits
 
+`load`, `load.all`, `load.v11` and `load.all.v11` read within the default
+limits. `load.with` and `load.all.with` take others:
+
+```python
+C.Limits{size: Nat, depth: Nat, aliases: Nat, digits: Nat}   # src/compose.bend
+
+Y.load.with(C.Core{}, C.Limits{65536n, 64n, 1000n, 100n}, text)
+```
+
+| Limit | Default | What it bounds |
+|---|---|---|
+| `size` | 1,048,576 | Characters in the text. A longer text is refused before it is read. |
+| `depth` | 256 | How deep collections nest, block and flow. |
+| `aliases` | 100,000 | Nodes that aliases copy into one document, counting every copy in full. |
+| `digits` | 1,000 | Characters in a number written in a base other than ten (`0x`, `0o`, YAML 1.1's `0b`, `0` octal and base 60), which takes time that grows with the square of its length to convert. Decimal numbers have no such limit. |
+
+Past a limit, the load fails with an error whose cause is `T.Limit{}` and
+whose message names the limit, as in `found nesting deeper than the depth
+limit of 256 at line 257 column 257`.
+
+Reading takes time and memory in proportion to the text: on a recent
+Apple silicon machine, 0.2 to 1.5 seconds per million characters, and
+about 300 bytes of memory per character, so about 320 MB at the default
+size limit. The size limit counts
+the characters of a `String` you have already read; read a file with a
+byte cap (Bend's `File.read` takes one) so that a huge file is never read
+whole.
+
+## Security
+
+YAML libraries are known for a few kinds of attack. This is how each fares
+here.
+
+| Attack | Here |
+|---|---|
+| Objects built from tags (`!ruby/object`, `!!python/object/apply`, SnakeYAML's constructors), and with them code execution | Can't happen. Loading is a pure function from text to `Result<Error, Yaml>`: it does no IO, and `Yaml` holds only data. A tag the schema doesn't know is kept as `Tagged{tag, val}`; nothing looks a tag up to run it, and there is no way to register one. `LAWS.bend` proves that every tag the schema doesn't know is kept this way. |
+| Alias expansion ("billion laughs"), and merges of aliases | The alias limit counts what aliases copy, merges included. A bomb is refused at once. |
+| Recursive aliases and merge cycles | Errors: a tree can't hold a cycle. |
+| Deep nesting | The depth limit. The reader is a loop, not recursion, so depth can't overflow a stack while reading; the limit keeps the value tree shallow for the code that walks it. |
+| Huge texts, scalars and keys | The size limit. Reading is linear in the text, so a long scalar, comment, anchor, tag or quoted run costs time in proportion to its length. A simple key past 1024 characters is an error, as YAML says. |
+| Long numbers | Decimal integers and floats stay text and are copied in linear time. Numbers in other bases need conversion; the digits limit bounds them. |
+| Hash floods | There are no hashes. Mappings are checked for repeats with a crit-bit trie keyed by each key's text, so many keys, or keys with long shared prefixes, cost in proportion to their text. |
+| Duplicate keys | A repeated key is an error under both schemas, so two readers can't take different values from one mapping. Keys compare as values: `0x1` and `1` are the same key. |
+| Encoding tricks | The reader takes a Bend `String`. Control characters, NUL and lone surrogates are errors. A BOM is skipped at the start of the text and is content anywhere else, as in libyaml and PyYAML. Invalid UTF-8 never reaches the reader: Bend's `File.read` turns it into U+FFFD. |
+
+`script/adversarial` builds inputs for each of these, at a few sizes, and
+times the reader on them with its peak memory.
+
+## Known gaps
+
 - The whole text is read at once; there is no streaming.
 - A float is decimal text, not a binary double. Comparing two floats by
   value is up to you.
 - `dump` writes block style for the Core schema only. It keeps no
   comments, anchors or the original layout.
 - Recursive aliases (`&a [*a]`) are errors.
+- A BOM is skipped only at the very start of the text, not before a later
+  document.
 
 ## Laws
 
@@ -171,8 +225,9 @@ same values, and each of their 332 documents comes back the same through
 booleans and null round-trip through `dump` and `load`; an integer is
 written as its text; escaping for double quotes joins over text
 (`escaped(a ++ b) == escaped(a) ++ escaped(b)`, by induction); and worked
-examples of both schemas, merge keys, a syntax error's message, and the
-alias limit. `bend PROOF.bend --verdict` rechecks them with the BendTT
+examples of both schemas, merge keys, a syntax error's message, and each
+limit. For every tag a schema doesn't know, scalar or collection, the
+node is the tag and its value, kept as data. `bend PROOF.bend --verdict` rechecks them with the BendTT
 kernel.
 
 ## How it's built
@@ -206,6 +261,7 @@ Ruby (for the test suite's runner). PyYAML is optional.
 script/check src/scan.bend   # type-check a module
 script/prove --verdict       # the laws
 script/v11                   # the YAML 1.1 cases, and PyYAML if it's installed
+script/adversarial           # times hostile inputs, with peak memory
 git clone -b data https://github.com/yaml/yaml-test-suite.git /path/to/yts
 script/suite /path/to/yts    # the YAML test suite, in.json, and the dump round trip
 ```

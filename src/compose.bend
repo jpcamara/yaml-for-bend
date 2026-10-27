@@ -4,8 +4,10 @@
 # A scalar is resolved as it arrives; a collection is finished at its end
 # event, where a mapping's keys are checked and merged. An anchored node is
 # kept by name, and an alias is a copy of it. Every alias adds the size of
-# its node to a count, and past a limit the document is refused, so a
-# small text can't expand into a huge tree ("billion laughs").
+# its node to a count, and past the alias limit the document is refused, so
+# a small text can't expand into a huge tree ("billion laughs"); past the
+# depth limit, so can't a deep one. A number written in a base other than
+# ten, past the digits limit, is refused before it is converted.
 #
 # A key may appear once in a mapping; a repeat is an error. Under YAML 1.1,
 # "<<" merges a mapping, or a list of them, into the mapping it's in: the
@@ -28,6 +30,18 @@ type Schema is Data:
   Core{}
   Yaml11{}
 
+# What a load may take, so a hostile text can't make it slow or huge: the
+# characters in the text, how deep its collections may nest, how many nodes
+# aliases may copy into a document, and how long a number may be when it is
+# written in a base other than ten (converting one takes time that grows
+# with the square of its length).
+type Limits is Data:
+  Limits{size: Nat, depth: Nat, aliases: Nat, digits: Nat}
+
+# The limits the composer checks: the size is checked before it runs.
+type Caps is Data:
+  Caps{depth: Nat, aliases: Nat, digits: Nat}
+
 # A finished node, and whether it is the merge key "<<".
 type Item is Data:
   Item{val: V.Yaml, merge: Bool}
@@ -49,9 +63,10 @@ type Doc is Data:
 
 # The composer: the open collections, the anchors, how many nodes the
 # document has (aliases counted in full), the document's value once it has
-# one, the documents so far (newest first), and where the document started.
+# one, the documents so far (newest first), where the document started,
+# how deep its collections nest here, and how many nodes aliases copied.
 type Co is Data:
-  Co{stack: List<&2, Open>, anchors: Map<&2, Anchored>, count: Nat, root: Maybe<&2, V.Yaml>, docs: List<&2, Doc>, opened: T.Mark}
+  Co{stack: List<&2, Open>, anchors: Map<&2, Anchored>, count: Nat, root: Maybe<&2, V.Yaml>, docs: List<&2, Doc>, opened: T.Mark, depth: Nat, copied: Nat}
 
 # Keys in order, and each key's entry, looked up by its canon text.
 type Ord is Data:
@@ -124,7 +139,7 @@ def ord.entries(o: Ord) -> List<&2, V.Entry>:
 # Mappings
 # --------
 
-def key.text(v: V.Yaml) -> String:
+def key.full(v: V.Yaml) -> String:
   match v:
     case V.Str{t}:
       t
@@ -183,6 +198,37 @@ def merges(items: List<&2, Item>, r: Result<&2, &2, String, Ord>, +seen: Bool) -
         case Con{v, rest}:
           merges(rest, merge.step(r, k, v, seen), Bool.or(seen, item.merge(k)))
 
+def joined(merged: Result<&2, &2, String, Ord>, own: Result<&2, &2, String, Ord>) -> Result<&2, &2, String, V.Yaml>:
+  match merged:
+    case Fail{e}:
+      Fail{e}
+    case Done{m}:
+      match own:
+        case Fail{e}:
+          Fail{e}
+        case Done{o}:
+          Done{V.Mapping{ord.entries(ord.merge(ord.entries(o), m))}}
+
+# Scalars and collections
+# -----------------------
+
+# Whether +s+ has more than +n+ characters, looking at no more than that.
+def longer(s: String, n: Nat) -> Bool:
+  match s:
+    case SNil{}:
+      False{}
+    case SCon{c, t}:
+      match n:
+        case 0n:
+          True{}
+        case 1n+k:
+          longer(t, k)
+
+# A key as an error shows it: its first 80 characters.
+def key.text(v: V.Yaml) -> String:
+  +t = key.full(v)
+  when(String, longer(t, 80n), u => String.take(t, 80n) ++ "...", u => t)
+
 def own.step(r: Result<&2, &2, String, Ord>, +k: Item, v: Item) -> Result<&2, &2, String, Ord>:
   match r:
     case Fail{e}:
@@ -205,24 +251,10 @@ def owns(items: List<&2, Item>, r: Result<&2, &2, String, Ord>) -> Result<&2, &2
         case Con{v, rest}:
           owns(rest, own.step(r, k, v))
 
-def joined(merged: Result<&2, &2, String, Ord>, own: Result<&2, &2, String, Ord>) -> Result<&2, &2, String, V.Yaml>:
-  match merged:
-    case Fail{e}:
-      Fail{e}
-    case Done{m}:
-      match own:
-        case Fail{e}:
-          Fail{e}
-        case Done{o}:
-          Done{V.Mapping{ord.entries(ord.merge(ord.entries(o), m))}}
-
 # A mapping from its keys and values, oldest first: merged entries first,
 # then its own, which replace any merged ones with the same key.
 def map.value(+items: List<&2, Item>) -> Result<&2, &2, String, V.Yaml>:
   joined(merges(items, Done{ord.new()}, False{}), owns(items, Done{ord.new()}))
-
-# Scalars and collections
-# -----------------------
 
 def is_plain(s: T.Style) -> Bool:
   match s:
@@ -258,6 +290,26 @@ def is_merge(s: Schema, t: P.Tag, +text: String, +plain: Bool) -> Bool:
         case P.Tag{n}:
           String.eq(n, C.yaml.tag("merge"))
 
+# Whether a scalar's text is read as a number: plain without a tag, or
+# tagged !!int or !!float.
+def as.number(t: P.Tag, +plain: Bool) -> Bool:
+  match t:
+    case P.NoTag{}:
+      plain
+    case P.Tag{+n}:
+      Bool.or(String.eq(n, C.yaml.tag("int")), String.eq(n, C.yaml.tag("float")))
+
+def in.base(s: Schema, +text: String) -> Bool:
+  match s:
+    case Core{}:
+      C.in.base(text)
+    case Yaml11{}:
+      Y11.in.base(text)
+
+# Whether a scalar is a number in another base longer than +limit+.
+def too.long(+s: Schema, t: P.Tag, +text: String, +plain: Bool, +limit: Nat) -> Bool:
+  when(Bool, longer(text, limit), u => Bool.and(as.number(t, plain), in.base(s, text)), u => False{})
+
 def collection(t: P.Tag, v: V.Yaml) -> V.Yaml:
   match t:
     case P.NoTag{}:
@@ -270,27 +322,27 @@ def collection(t: P.Tag, v: V.Yaml) -> V.Yaml:
 
 def co.count(co: Co) -> Nat:
   match co:
-    case Co{stack, anchors, count, root, docs, opened}:
+    case Co{stack, anchors, count, root, docs, opened, depth, copied}:
       count
 
 def co.docs(co: Co) -> List<&2, Doc>:
   match co:
-    case Co{stack, anchors, count, root, docs, opened}:
+    case Co{stack, anchors, count, root, docs, opened, depth, copied}:
       docs
 
 # A finished node goes to the collection it's in, or is the document.
 def attach(co: Co, item: Item) -> Co:
   match co:
-    case Co{stack, anchors, count, root, docs, opened}:
+    case Co{stack, anchors, count, root, docs, opened, depth, copied}:
       match stack:
         case Nil{}:
-          Co{[], anchors, count, Some{item.val(item)}, docs, opened}
+          Co{[], anchors, count, Some{item.val(item)}, docs, opened, depth, copied}
         case Con{top, rest}:
           match top:
             case OSeq{anchor, tag, items, start, at}:
-              Co{OSeq{anchor, tag, item.val(item) <> items, start, at} <> rest, anchors, count, root, docs, opened}
+              Co{OSeq{anchor, tag, item.val(item) <> items, start, at} <> rest, anchors, count, root, docs, opened, depth, copied}
             case OMap{anchor, tag, items, start, at}:
-              Co{OMap{anchor, tag, item <> items, start, at} <> rest, anchors, count, root, docs, opened}
+              Co{OMap{anchor, tag, item <> items, start, at} <> rest, anchors, count, root, docs, opened, depth, copied}
 
 def name.anchor(m: Map<&2, Anchored>, anchor: Maybe<&2, String>, v: V.Yaml, size: Nat) -> Map<&2, Anchored>:
   match anchor:
@@ -303,13 +355,8 @@ def name.anchor(m: Map<&2, Anchored>, anchor: Maybe<&2, String>, v: V.Yaml, size
 # grows by +more+ (the nodes not counted yet: a collection's items were).
 def finish(co: Co, anchor: Maybe<&2, String>, +item: Item, +size: Nat, more: Nat) -> Co:
   match co:
-    case Co{stack, anchors, count, root, docs, opened}:
-      attach(Co{stack, name.anchor(anchors, anchor, item.val(item), size), Nat.add(count, more), root, docs, opened}, item)
-
-def co.push(co: Co, o: Open) -> Co:
-  match co:
-    case Co{stack, anchors, count, root, docs, opened}:
-      Co{o <> stack, anchors, count, root, docs, opened}
+    case Co{stack, anchors, count, root, docs, opened, depth, copied}:
+      attach(Co{stack, name.anchor(anchors, anchor, item.val(item), size), Nat.add(count, more), root, docs, opened, depth, copied}, item)
 
 def node.done(r: Result<&2, &2, String, V.Yaml>, co: Co, anchor: Maybe<&2, String>, +merge: Bool, +size: Nat, more: Nat, at: T.Mark) -> Result<&2, &2, T.Error, Co>:
   match r:
@@ -340,34 +387,25 @@ def opens(stack: List<&2, Open>, +name: String) -> Bool:
 def found(hm: Map<&2, Anchored> & Bool) -> Bool:
   Pair.snd(Map<&2, Anchored>, Bool, hm)
 
-def alias.got(ma: Map<&2, Anchored> & Anchored, +co: Co, +limit: Nat, at: T.Mark) -> Result<&2, &2, T.Error, Co>:
-  (m, a) = ma
-  match a:
-    case Anchored{v, +size}:
-      when(Result<&2, &2, T.Error, Co>, Nat.is_gt(Nat.add(co.count(co), size), limit),
-        u => Fail{content("found more than " ++ Nat.show(limit) ++ " nodes through aliases", at)},
-        u => Done{finish(co, None{}, Item{v, False{}}, size, size)})
-
-# An alias: a copy of its node, counted at the node's full size. An alias
-# inside the node it names would make a cycle, which a tree can't hold.
-def co.alias(co: Co, +name: String, +limit: Nat, +at: T.Mark) -> Result<&2, &2, T.Error, Co>:
+def co.copied(co: Co, +more: Nat) -> Co:
   match co:
-    case Co{+stack, +anchors, count, root, docs, opened}:
-      when(Result<&2, &2, T.Error, Co>, opens(stack, name),
-        u => Fail{content("found an alias to a node that holds it: " ++ name ++ " is recursive, and a tree can't hold a cycle", at)},
-        u => when(Result<&2, &2, T.Error, Co>, Bool.not(found(Map.has(&2, Anchored, anchors, name))),
-          u => Fail{content("found an alias to an unknown anchor: " ++ name, at)},
-          u => alias.got(Map.get(Anchored, Anchored{V.Null{}, 0n}, anchors, name), Co{stack, anchors, count, root, docs, opened}, limit, at)))
+    case Co{stack, anchors, count, root, docs, opened, depth, copied}:
+      Co{stack, anchors, count, root, docs, opened, depth, Nat.add(copied, more)}
+
+def co.copied.count(co: Co) -> Nat:
+  match co:
+    case Co{stack, anchors, count, root, docs, opened, depth, copied}:
+      copied
 
 def co.doc.start(co: Co, at: T.Mark) -> Co:
   match co:
-    case Co{stack, anchors, count, root, docs, opened}:
-      Co{[], Map.new(&2, Anchored), 0n, None{}, docs, at}
+    case Co{stack, anchors, count, root, docs, opened, depth, copied}:
+      Co{[], Map.new(&2, Anchored), 0n, None{}, docs, at, 0n, 0n}
 
 def co.doc.end(co: Co) -> Co:
   match co:
-    case Co{stack, anchors, count, root, docs, +opened}:
-      Co{stack, anchors, count, None{}, Doc{Maybe.default(&2, V.Yaml, root, V.Null{}), opened} <> docs, opened}
+    case Co{stack, anchors, count, root, docs, +opened, depth, copied}:
+      Co{stack, anchors, count, None{}, Doc{Maybe.default(&2, V.Yaml, root, V.Null{}), opened} <> docs, opened, depth, copied}
 
 def map.tagged(r: Result<&2, &2, String, V.Yaml>, t: P.Tag) -> Result<&2, &2, String, V.Yaml>:
   match r:
@@ -379,18 +417,91 @@ def map.tagged(r: Result<&2, &2, String, V.Yaml>, t: P.Tag) -> Result<&2, &2, St
 # The collection on top ends.
 def co.close(co: Co) -> Result<&2, &2, T.Error, Co>:
   match co:
-    case Co{stack, anchors, +count, root, docs, opened}:
+    case Co{stack, anchors, +count, root, docs, opened, depth, copied}:
       match stack:
         case Nil{}:
           Fail{content("found the end of a collection that never started", T.Mark{0n, 0n, 0n})}
         case Con{top, rest}:
           match top:
             case OSeq{anchor, tag, items, start, +at}:
-              node.done(Done{collection(tag, V.Seq{List.reverse(&2, V.Yaml, items)})}, Co{rest, anchors, count, root, docs, opened}, anchor, False{}, 1n+Nat.sub(count, start), 1n, at)
+              node.done(Done{collection(tag, V.Seq{List.reverse(&2, V.Yaml, items)})}, Co{rest, anchors, count, root, docs, opened, Nat.sub(depth, 1n), copied}, anchor, False{}, 1n+Nat.sub(count, start), 1n, at)
             case OMap{anchor, tag, items, start, +at}:
-              node.done(map.tagged(map.value(List.reverse(&2, Item, items)), tag), Co{rest, anchors, count, root, docs, opened}, anchor, False{}, 1n+Nat.sub(count, start), 1n, at)
+              node.done(map.tagged(map.value(List.reverse(&2, Item, items)), tag), Co{rest, anchors, count, root, docs, opened, Nat.sub(depth, 1n), copied}, anchor, False{}, 1n+Nat.sub(count, start), 1n, at)
 
-def co.step(e: P.Evt, +co: Co, +s: Schema, +limit: Nat) -> Result<&2, &2, T.Error, Co>:
+# The default limits: a text of at most 1048576 characters (1 MiB), nesting
+# at most 256 deep, aliases copying at most 100000 nodes into a document,
+# and numbers in other bases at most 1000 characters long.
+def limits() -> Limits:
+  Limits{1048576n, 256n, 100000n, 1000n}
+
+def limits.size(l: Limits) -> Nat:
+  match l:
+    case Limits{size, depth, aliases, digits}:
+      size
+
+def limits.depth(l: Limits) -> Nat:
+  match l:
+    case Limits{size, depth, aliases, digits}:
+      depth
+
+def limits.aliases(l: Limits) -> Nat:
+  match l:
+    case Limits{size, depth, aliases, digits}:
+      aliases
+
+def limits.digits(l: Limits) -> Nat:
+  match l:
+    case Limits{size, depth, aliases, digits}:
+      digits
+
+def caps(+l: Limits) -> Caps:
+  Caps{limits.depth(l), limits.aliases(l), limits.digits(l)}
+
+def caps.depth(c: Caps) -> Nat:
+  match c:
+    case Caps{depth, aliases, digits}:
+      depth
+
+def caps.aliases(c: Caps) -> Nat:
+  match c:
+    case Caps{depth, aliases, digits}:
+      aliases
+
+def caps.digits(c: Caps) -> Nat:
+  match c:
+    case Caps{depth, aliases, digits}:
+      digits
+
+def limit.error(why: String, at: T.Mark) -> T.Error:
+  T.Error{why, at, T.Limit{}}
+
+# A collection opens, unless collections already nest as deep as allowed.
+def co.push(co: Co, o: Open, +limit: Nat, at: T.Mark) -> Result<&2, &2, T.Error, Co>:
+  match co:
+    case Co{stack, anchors, count, root, docs, opened, +depth, copied}:
+      when(Result<&2, &2, T.Error, Co>, Nat.is_ge(depth, limit), u => Fail{limit.error("found nesting deeper than the depth limit of " ++ Nat.show(limit), at)},
+        u => Done{Co{o <> stack, anchors, count, root, docs, opened, 1n+depth, copied}})
+
+def alias.got(ma: Map<&2, Anchored> & Anchored, +co: Co, +limit: Nat, at: T.Mark) -> Result<&2, &2, T.Error, Co>:
+  (m, a) = ma
+  match a:
+    case Anchored{v, +size}:
+      when(Result<&2, &2, T.Error, Co>, Nat.is_gt(Nat.add(co.copied.count(co), size), limit),
+        u => Fail{limit.error("found more nodes through aliases than the alias limit of " ++ Nat.show(limit), at)},
+        u => Done{finish(co.copied(co, size), None{}, Item{v, False{}}, size, size)})
+
+# An alias: a copy of its node, counted at the node's full size. An alias
+# inside the node it names would make a cycle, which a tree can't hold.
+def co.alias(co: Co, +name: String, +limit: Nat, +at: T.Mark) -> Result<&2, &2, T.Error, Co>:
+  match co:
+    case Co{+stack, +anchors, count, root, docs, opened, depth, copied}:
+      when(Result<&2, &2, T.Error, Co>, opens(stack, name),
+        u => Fail{content("found an alias to a node that holds it: " ++ name ++ " is recursive, and a tree can't hold a cycle", at)},
+        u => when(Result<&2, &2, T.Error, Co>, Bool.not(found(Map.has(&2, Anchored, anchors, name))),
+          u => Fail{content("found an alias to an unknown anchor: " ++ name, at)},
+          u => alias.got(Map.get(Anchored, Anchored{V.Null{}, 0n}, anchors, name), Co{stack, anchors, count, root, docs, opened, depth, copied}, limit, at)))
+
+def co.step(e: P.Evt, +co: Co, +s: Schema, +c: Caps) -> Result<&2, &2, T.Error, Co>:
   match e:
     case P.Evt{ev, +at}:
       match ev:
@@ -403,20 +514,22 @@ def co.step(e: P.Evt, +co: Co, +s: Schema, +limit: Nat) -> Result<&2, &2, T.Erro
         case P.DocEndEv{explicit}:
           Done{co.doc.end(co)}
         case P.AliasEv{name}:
-          co.alias(co, name, limit, at)
+          co.alias(co, name, caps.aliases(c), at)
         case P.ScalarEv{anchor, +tag, +text, style}:
           +plain = is_plain(style)
-          node.done(scalar.value(s, tag, text, plain), co, anchor, is_merge(s, tag, text, plain), 1n, 1n, at)
+          when(Result<&2, &2, T.Error, Co>, too.long(s, tag, text, plain, caps.digits(c)),
+            u => Fail{limit.error("found a number in another base longer than the digits limit of " ++ Nat.show(caps.digits(c)), at)},
+            u => node.done(scalar.value(s, tag, text, plain), co, anchor, is_merge(s, tag, text, plain), 1n, 1n, at))
         case P.SeqStartEv{anchor, tag, flow}:
-          Done{co.push(co, OSeq{anchor, tag, [], co.count(co), at})}
+          co.push(co, OSeq{anchor, tag, [], co.count(co), at}, caps.depth(c), at)
         case P.SeqEndEv{}:
           co.close(co)
         case P.MapStartEv{anchor, tag, flow}:
-          Done{co.push(co, OMap{anchor, tag, [], co.count(co), at})}
+          co.push(co, OMap{anchor, tag, [], co.count(co), at}, caps.depth(c), at)
         case P.MapEndEv{}:
           co.close(co)
 
-def co.run(evs: List<&2, P.Evt>, +s: Schema, +limit: Nat, r: Result<&2, &2, T.Error, Co>) -> Result<&2, &2, T.Error, Co>:
+def co.run(evs: List<&2, P.Evt>, +s: Schema, +c: Caps, r: Result<&2, &2, T.Error, Co>) -> Result<&2, &2, T.Error, Co>:
   match evs:
     case Nil{}:
       r
@@ -425,14 +538,10 @@ def co.run(evs: List<&2, P.Evt>, +s: Schema, +limit: Nat, r: Result<&2, &2, T.Er
         case Fail{err}:
           Fail{err}
         case Done{+co}:
-          co.run(rest, s, limit, co.step(e, co, s, limit))
-
-# How many nodes aliases may make a document: past this, it's refused.
-def alias.limit() -> Nat:
-  100000n
+          co.run(rest, s, c, co.step(e, co, s, c))
 
 def co.new() -> Co:
-  Co{[], Map.new(&2, Anchored), 0n, None{}, [], T.Mark{0n, 0n, 0n}}
+  Co{[], Map.new(&2, Anchored), 0n, None{}, [], T.Mark{0n, 0n, 0n}, 0n, 0n}
 
 def composed.ok(r: Result<&2, &2, T.Error, Co>) -> Result<&2, &2, T.Error, List<&2, Doc>>:
   match r:
@@ -450,9 +559,8 @@ def composed(r: Result<&2, &2, T.Error, Co>, error: Maybe<&2, T.Error>) -> Resul
     case Some{e}:
       Fail{e}
 
-# The documents the events hold, through schema +s+, with aliases making at
-# most +limit+ nodes in a document.
-def compose.limited(p: P.Parsed, +s: Schema, +limit: Nat) -> Result<&2, &2, T.Error, List<&2, Doc>>:
+# The documents the events hold, through schema +s+, within limits +lim+.
+def compose(p: P.Parsed, +s: Schema, +lim: Limits) -> Result<&2, &2, T.Error, List<&2, Doc>>:
   match p:
     case P.Parsed{events, error}:
-      composed(co.run(events, s, limit, Done{co.new()}), error)
+      composed(co.run(events, s, caps(lim), Done{co.new()}), error)

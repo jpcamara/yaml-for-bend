@@ -85,10 +85,6 @@ def big.show(+ds: List<&2, Nat>) -> String:
 def signed(+neg: Bool, +digits: String) -> String:
   Bool.pick(String, Bool.and(neg, Bool.not(String.eq(digits, "0"))), "-" ++ digits, digits)
 
-# +s+, digits of +base+, as decimal text with the sign.
-def int.text(+neg: Bool, s: String, +base: Nat) -> String:
-  signed(neg, big.show(big.read(s, base, [])))
-
 # Exact decimals
 # --------------
 
@@ -105,6 +101,17 @@ def drop.zeros(s: String) -> String:
           drop.zeros(t)
         case _:
           SCon{c, t}
+
+# Decimal digits as they'd be written, without zeros in front.
+def decimal(+s: String) -> String:
+  +ds = drop.zeros(s)
+  Bool.pick(String, String.is_empty(ds), "0", ds)
+
+# +s+, digits of +base+, as decimal text with the sign. Decimal digits are
+# copied; other bases are converted, in time that grows with the square of
+# their length.
+def int.text(+neg: Bool, +s: String, +base: Nat) -> String:
+  signed(neg, when(String, Nat.is_eq(base, 10n), u => decimal(s), u => big.show(big.read(s, base, []))))
 
 def take.digits(s: String) -> String:
   match s:
