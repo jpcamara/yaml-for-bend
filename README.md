@@ -10,9 +10,9 @@ terminates, nothing is `@unsafe`, and it needs nothing but Base.
 From BendHub:
 
 ```python
-import yaml-for-bend@0.1.0.0/yaml.bend as Y
-import yaml-for-bend@0.1.0.0/value.bend as V
-import yaml-for-bend@0.1.0.0/token.bend as T
+import yaml-for-bend@0.1.1.0/yaml.bend as Y
+import yaml-for-bend@0.1.1.0/value.bend as V
+import yaml-for-bend@0.1.1.0/token.bend as T
 ```
 
 Or copy `src/` into your project and import `./src/yaml.bend` and the
