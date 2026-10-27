@@ -1,0 +1,12 @@
+#!/usr/bin/env python3
+"""Lists defs no other def in src/ calls (main excepted)."""
+import re, glob, os
+files = {p: open(p).read() for p in glob.glob(os.path.join(os.path.dirname(__file__), "..", "src", "*.bend"))}
+for path, text in sorted(files.items()):
+    for name in re.findall(r"(?m)^(?:@unsafe )?def ([\w.]+)\(", text):
+        if name == "main":
+            continue
+        local = len(re.findall(r"(?<![\w.])" + re.escape(name) + r"(?![\w.])", text)) - 1
+        remote = sum(len(re.findall(r"\.\b" + re.escape(name) + r"(?![\w.])", t)) for p, t in files.items() if p != path)
+        if local == 0 and remote == 0:
+            print(f"{os.path.basename(path)}: {name}")

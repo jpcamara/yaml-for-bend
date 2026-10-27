@@ -1,0 +1,29 @@
+x: yes§x: Yes§x: YES§x: no§x: No§x: NO§x: on§x: On§x: ON§x: off§x: Off§x: OFF§x: true§x: True§x: TRUE§x: false§x: False§x: FALSE§x: y§x: Y§x: n§x: N§x: ~§x: null§x: Null§x: NULL§x: nUll§x: yEs§x:§x: ''§x: ""§§x: !!null ''§x: !!bool yes§x: !!bool Off§x: !!bool 1§x: 0§x: 1§x: -1§x: +5§x: 010§x: 08§x: 0o17§x: 0x1A§x: -0x1A§x: 0x_1A§x: 0b101§x: -0b101§x: 0b1_0§x: 1_000§x: -1_000§x: 0_7§x: -0§x: 123456789012345678901234567890§x: 0xFFFF_FFFF_FFFF_FFFF§x: 1:30§x: -1:30§x: 190:20:30§x: 1:60§x: 1_0:30§x: 0:30§x: 1,000§x: .5§x: -.5§x: +.5§x: 1.§x: 0.§x: 1.5§x: 1.0e-07§x: 1.0e+5§x: 1.0e7§x: 1e5§x: 1e-5§x: 1_000.5§x: 1.5.5§x: .§x: -.§x: ._§x: .inf§x: -.inf§x: +.inf§x: .Inf§x: .INF§x: .nan§x: .NaN§x: .NAN§x: 190:20:30.15§x: -1:30.5§x: 1:30.§x: 6.02e+23§x: 0.1§x: -0.0§x: 1__2.3§x: 2001-12-14§x: 2001-12-14t21:59:43.10-05:00§x: 2001-12-14 21:59:43.10 -5§x: 2001-12-15T02:59:43.1Z§x: 2001-12-15 2:59:43.10§x: 2002-1-1§x: 2001-12-14 21:59:43§x: x2001-12-14§x: !!str 1§x: !!int "3"§x: !!int 0x1F§x: !!float 3§x: !!float 1_000§x: !!float abc§x: ! 12§x: !foo bar§x: !!binary aGVsbG8=§x: !!timestamp 2001-12-14§x: 'yes'§x: "1"§x: |
+  yes
+§x: [yes, no, 010, 1:30, ~]§{on: 1, off: 2}§base: &b {a: 1, b: 2}
+derived:
+  <<: *b
+  b: 3§a: &a {x: 1}
+b: &b {y: 2}
+c:
+  <<: [*a, *b]
+  z: 3§a: &a {x: 1}
+b: &b {x: 2}
+c:
+  <<: [*a, *b]§a: 1
+<<: {a: 2, b: 3}§<<: {a: 1}
+a: 2§a:
+  <<: {b: 1}
+  <<: {b: 2, c: 3}§a:
+  "<<": {b: 1}§a:
+  !!merge <<: {b: 1}§a:
+  <<: 5§a:
+  <<: [{b: 1}, 2]§- &a {x: 1, y: 2}
+- <<: *a
+  y: 9
+  z: 3§a: 1
+a: 2§a: &x 1
+b: *x§x: *nope§&a [*a]§a: b: c§key: [1, 2, {k: v}]
+other: >
+  folded
+  text

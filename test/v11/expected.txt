@@ -1,0 +1,133 @@
+{S(x)=true}
+{S(x)=true}
+{S(x)=true}
+{S(x)=false}
+{S(x)=false}
+{S(x)=false}
+{S(x)=true}
+{S(x)=true}
+{S(x)=true}
+{S(x)=false}
+{S(x)=false}
+{S(x)=false}
+{S(x)=true}
+{S(x)=true}
+{S(x)=true}
+{S(x)=false}
+{S(x)=false}
+{S(x)=false}
+{S(x)=S(y)}
+{S(x)=S(Y)}
+{S(x)=S(n)}
+{S(x)=S(N)}
+{S(x)=null}
+{S(x)=null}
+{S(x)=null}
+{S(x)=null}
+{S(x)=S(nUll)}
+{S(x)=S(yEs)}
+{S(x)=null}
+{S(x)=S()}
+{S(x)=S()}
+null
+{S(x)=null}
+{S(x)=true}
+{S(x)=false}
+ERR:found a value that isn't a !!bool: 1 at line 1 column 4
+{S(x)=I(0)}
+{S(x)=I(1)}
+{S(x)=I(-1)}
+{S(x)=I(5)}
+{S(x)=I(8)}
+{S(x)=S(08)}
+{S(x)=S(0o17)}
+{S(x)=I(26)}
+{S(x)=I(-26)}
+{S(x)=I(26)}
+{S(x)=I(5)}
+{S(x)=I(-5)}
+{S(x)=I(2)}
+{S(x)=I(1000)}
+{S(x)=I(-1000)}
+{S(x)=I(7)}
+{S(x)=I(0)}
+{S(x)=I(123456789012345678901234567890)}
+{S(x)=I(18446744073709551615)}
+{S(x)=I(90)}
+{S(x)=I(-90)}
+{S(x)=I(685230)}
+{S(x)=S(1:60)}
+{S(x)=I(630)}
+{S(x)=S(0:30)}
+{S(x)=S(1,000)}
+{S(x)=F(0.5)}
+{S(x)=F(-0.5)}
+{S(x)=F(0.5)}
+{S(x)=F(1.0)}
+{S(x)=F(0.0)}
+{S(x)=F(1.5)}
+{S(x)=F(0.0000001)}
+{S(x)=F(100000.0)}
+{S(x)=S(1.0e7)}
+{S(x)=S(1e5)}
+{S(x)=S(1e-5)}
+{S(x)=F(1000.5)}
+{S(x)=S(1.5.5)}
+{S(x)=S(.)}
+{S(x)=S(-.)}
+{S(x)=S(._)}
+{S(x)=F(.inf)}
+{S(x)=F(-.inf)}
+{S(x)=F(.inf)}
+{S(x)=F(.inf)}
+{S(x)=F(.inf)}
+{S(x)=F(.nan)}
+{S(x)=F(.nan)}
+{S(x)=F(.nan)}
+{S(x)=F(685230.15)}
+{S(x)=F(-90.5)}
+{S(x)=F(90.0)}
+{S(x)=F(602000000000000000000000.0)}
+{S(x)=F(0.1)}
+{S(x)=F(-0.0)}
+{S(x)=F(12.3)}
+{S(x)=T(S(2001-12-14))}
+{S(x)=T(S(2001-12-14t21:59:43.10-05:00))}
+{S(x)=T(S(2001-12-14 21:59:43.10 -5))}
+{S(x)=T(S(2001-12-15T02:59:43.1Z))}
+{S(x)=T(S(2001-12-15 2:59:43.10))}
+{S(x)=S(2002-1-1)}
+{S(x)=T(S(2001-12-14 21:59:43))}
+{S(x)=S(x2001-12-14)}
+{S(x)=S(1)}
+{S(x)=I(3)}
+{S(x)=I(31)}
+{S(x)=F(3.0)}
+{S(x)=F(1000.0)}
+ERR:found a value that isn't a !!float: abc at line 1 column 4
+{S(x)=S(12)}
+{S(x)=!foo(S(bar))}
+{S(x)=tag:yaml.org,2002:binary(S(aGVsbG8=))}
+{S(x)=T(S(2001-12-14))}
+{S(x)=S(yes)}
+{S(x)=S(1)}
+{S(x)=S(yes\n)}
+{S(x)=[true,false,I(8),I(90),null]}
+{true=I(1),false=I(2)}
+{S(base)={S(a)=I(1),S(b)=I(2)},S(derived)={S(a)=I(1),S(b)=I(3)}}
+{S(a)={S(x)=I(1)},S(b)={S(y)=I(2)},S(c)={S(x)=I(1),S(y)=I(2),S(z)=I(3)}}
+{S(a)={S(x)=I(1)},S(b)={S(x)=I(2)},S(c)={S(x)=I(1)}}
+{S(a)=I(1),S(b)=I(3)}
+{S(a)=I(2)}
+ERR:found a duplicate key: << at line 2 column 3
+{S(a)={S(<<)={S(b)=I(1)}}}
+{S(a)={S(b)=I(1)}}
+ERR:found a merge value that isn't a mapping or a list of mappings at line 2 column 3
+ERR:found a merge value that isn't a mapping or a list of mappings at line 2 column 3
+[{S(x)=I(1),S(y)=I(2)},{S(x)=I(1),S(y)=I(9),S(z)=I(3)}]
+ERR:found a duplicate key: a at line 1 column 1
+{S(a)=I(1),S(b)=I(1)}
+ERR:found an alias to an unknown anchor: nope at line 1 column 4
+ERR:found an alias to a node that holds it: a is recursive, and a tree can't hold a cycle at line 1 column 5
+ERR:mapping values are not allowed in this context at line 1 column 5
+{S(key)=[I(1),I(2),{S(k)=S(v)}],S(other)=S(folded text\n)}

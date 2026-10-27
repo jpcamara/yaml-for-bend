@@ -1,0 +1,75 @@
+#!/usr/bin/env python3
+"""Reorders a .bend file's defs so each comes after the defs it calls, as
+Bend requires. The file's opening comment, its imports and its types stay
+on top. A def keeps the comment lines above it, section headings included.
+Stable: defs already in order don't move. Reports any cycle, which Bend
+refuses: merge such defs into one."""
+import re, sys
+
+START = re.compile(r"^(@unsafe )?def |^(type|law) |^import ")
+
+def items(lines):
+    """The file's opening comment, then (leading comments, item lines) pairs."""
+    i = 0
+    while i < len(lines) and not START.match(lines[i]):
+        i += 1
+    head, rest = lines[:i], lines[i:]
+    # Comments right above the first item belong to it, not to the head.
+    j = len(head)
+    while j > 0 and head[j - 1].startswith("#"):
+        j -= 1
+    lead, head = head[j:], head[:j]
+    out, cur = [], None
+    for line in rest:
+        if START.match(line):
+            if cur is not None:
+                out.append(cur)
+            cur = (lead, [line]); lead = []
+        elif line.startswith("#") or (line == "" and lead):
+            lead.append(line)
+        elif line == "" and cur is not None:
+            cur[1].append(line)
+        elif lead and cur is not None:
+            cur[1].extend(lead); lead = []; cur[1].append(line)
+        elif cur is not None:
+            cur[1].append(line)
+        else:
+            lead.append(line)
+    if cur is not None:
+        out.append(cur)
+    return head, out, lead
+
+def main(path):
+    text = open(path).read()
+    head, its, tail = items(text.split("\n"))
+    fixed, defs = [], []
+    for lead, body in its:
+        lead = [l for l in lead]
+        while lead and lead[0] == "":
+            lead.pop(0)
+        block = "\n".join(lead + body).rstrip("\n")
+        m = re.match(r"^(@unsafe )?def ([\w.]+)", body[0])
+        if m:
+            defs.append({"name": m.group(2), "unsafe": bool(m.group(1)), "body": block, "code": "\n".join(body[1:])})
+        else:
+            fixed.append(block)
+    names = {d["name"] for d in defs}
+    for d in defs:
+        code = "\n".join(l for l in d["code"].split("\n") if not l.lstrip().startswith("#"))
+        refs = re.findall(r"(?<![\w.])([A-Za-z_][\w.]*)\(", code) + re.findall(r"~([A-Za-z_][\w.]*)", code)
+        d["deps"] = {c for c in refs if c in names and c != d["name"]}
+    placed, out, remaining = set(), [], list(defs)
+    while remaining:
+        for i, d in enumerate(remaining):
+            if not (d["deps"] - placed) or d["unsafe"]:
+                out.append(d); placed.add(d["name"]); remaining.pop(i); break
+        else:
+            sys.stderr.write(f"{path}: cycle among {[d['name'] for d in remaining]}\n")
+            out.extend(remaining); break
+    top = "\n".join(head).strip("\n")
+    result = (top + "\n\n" if top else "") + "\n\n".join(fixed + [d["body"] for d in out]) + "\n"
+    if result != text:
+        open(path, "w").write(result)
+
+for p in sys.argv[1:]:
+    main(p)

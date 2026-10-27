@@ -1,0 +1,37 @@
+#!/usr/bin/env python3
+"""Checks a .bend file and, while the checker's complaint is a value used
+more than once, marks that binder reusable (+x) at the line it names and
+checks again. Stops at any other error and prints it."""
+import os, re, subprocess, sys
+
+root = os.path.join(os.path.dirname(__file__), "..")
+path = sys.argv[1]
+bend = os.environ.get("BEND_BIN", "bend")
+for _ in range(int(sys.argv[2]) if len(sys.argv) > 2 else 60):
+    out = subprocess.run([os.path.join(root, "script", "run"), f"{bend} {path} --check-only"],
+                         cwd=root, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True).stdout
+    if "SOME PROOFS FAIL" not in out:
+        print(f"{path}: ok"); sys.exit(0)
+    m = re.search(r"- observed : (\w+) \(consumed more than once\)", out)
+    loc = re.search(r"^(\d+)>\|(.*)$", out, re.M)
+    caret = re.search(r"^\s+\|(\s*)\^+", out, re.M)
+    if not (m and loc and caret):
+        print(out[:1500]); sys.exit(1)
+    name, line_no = m.group(1), int(loc.group(1))
+    col = len(caret.group(1))
+    full = os.path.join(root, path)
+    lines = open(full).read().split("\n")
+    line = lines[line_no - 1]
+    idx = line.find(name, max(0, col - 2))
+    if idx < 0 or (line[idx - 1:idx] == "+" and line[max(0, idx - 3):idx] != "1n+"):
+        idx = [mm.start() for mm in re.finditer(r"(?<![\w.+])" + re.escape(name) + r"(?![\w.])", line)]
+        idx = idx[0] if idx else -1
+    if idx < 0:
+        print(out[:1500]); sys.exit(1)
+    if line[max(0, idx - 3):idx] == "1n+":
+        lines[line_no - 1] = line[:idx] + "(+" + name + ")" + line[idx + len(name):]
+    else:
+        lines[line_no - 1] = line[:idx] + "+" + line[idx:]
+    open(full, "w").write("\n".join(lines))
+    print(f"  +{name} at line {line_no}")
+print("gave up"); sys.exit(1)

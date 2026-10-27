@@ -1,0 +1,5 @@
+#!/bin/sh
+# Checks PROOF.bend against LAWS.bend: script/prove [--verdict]
+# --verdict rechecks the proofs with the BendTT kernel, which needs Lean.
+cd "$(dirname "$0")/.."
+script/run "${BEND_BIN:-bend} PROOF.bend $*"

@@ -1,0 +1,8 @@
+#!/bin/sh
+# Type-checks .bend files: script/check src/scan.bend ...
+# BEND_BIN names the bend command (default: bend); see script/run.
+cd "$(dirname "$0")/.."
+bend=${BEND_BIN:-bend}
+cmd=""
+for f in "$@"; do cmd="$cmd echo checking $f; $bend $f --check-only 2>&1 | head -40;"; done
+script/run "$cmd"

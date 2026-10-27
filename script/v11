@@ -1,0 +1,11 @@
+#!/bin/sh
+# Loads test/v11/cases.txt with load.v11 and diffs the result against
+# test/v11/expected.txt. With PyYAML installed, also compares with it.
+set -e
+cd "$(dirname "$0")/.."
+script/build test/v11.bend build/v11
+build/v11 test/v11/cases.txt > build/v11.txt
+diff test/v11/expected.txt build/v11.txt && echo "yaml 1.1: $(grep -c '' build/v11.txt) cases as expected"
+if python3 -c "import yaml" 2>/dev/null; then
+  python3 test/v11/compare.py test/v11/cases.txt build/v11.txt | tail -1
+fi

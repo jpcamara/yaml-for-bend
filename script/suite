@@ -1,0 +1,11 @@
+#!/bin/sh
+# Runs the YAML test suite's data branch through the reader:
+#   git clone -b data https://github.com/yaml/yaml-test-suite.git <dir>
+#   script/suite <dir> [ID ...]
+# Needs Ruby, for the runner that compares the results.
+set -e
+cd "$(dirname "$0")/.."
+script/build test/suite.bend build/suite
+script/build test/json.bend build/json
+script/build test/roundtrip.bend build/roundtrip
+ruby test/suite.rb "$@"

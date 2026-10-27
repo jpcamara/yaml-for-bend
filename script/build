@@ -1,0 +1,12 @@
+#!/bin/sh
+# Builds a .bend entry point into a binary: script/build test/suite.bend build/suite
+# With BEND_HOST set, it builds there and copies the binary back.
+set -e
+cd "$(dirname "$0")/.."
+entry=$1; out=$2
+bend=${BEND_BIN:-bend}
+script/run "mkdir -p \$(dirname $out) && $bend $entry -o $out"
+if [ -n "$BEND_HOST" ]; then
+  mkdir -p "$(dirname "$out")"
+  scp -q "$BEND_HOST:${BEND_DIR:-bend-yaml}/$out" "$out"
+fi
